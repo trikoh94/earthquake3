@@ -94,6 +94,11 @@ class EarthquakeDashboard:
         else:
             self.show_interactive_map()
             
+        # Streamlit 앱 시작 직후, 데이터프레임에서 Arrow로 직렬화 불가한 컬럼 제거
+        for col in ['time_window']:
+            if col in self.analyzer.df.columns:
+                self.analyzer.df = self.analyzer.df.drop(columns=[col])
+        
     def show_overview(self):
         """
         Show overview statistics and basic visualizations
