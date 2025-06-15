@@ -32,8 +32,9 @@ class EnergyBalanceAnalyzer:
         # Calculate cumulative energy
         self.df['cumulative_energy'] = self.df['energy_release'].cumsum()
         
-        # Create time windows for analysis
-        self.df['time_window'] = pd.Grouper(key='time', freq='M')
+        # Remove any problematic Grouper/TimeGrouper columns
+        if 'time_window' in self.df.columns:
+            self.df = self.df.drop(columns=['time_window'])
         
     def analyze_energy_distribution(self):
         """
@@ -51,7 +52,7 @@ class EnergyBalanceAnalyzer:
         Analyze energy accumulation over time
         """
         # Calculate monthly energy release
-        monthly_energy = self.df.groupby('time_window')['energy_release'].sum()
+        monthly_energy = self.df.groupby(pd.Grouper(key='time', freq='M'))['energy_release'].sum()
         
         plt.figure(figsize=(15, 6))
         plt.plot(monthly_energy.index, monthly_energy.values)
