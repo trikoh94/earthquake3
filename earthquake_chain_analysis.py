@@ -172,7 +172,7 @@ class EarthquakeChainAnalyzer:
         Parameters:
         -----------
         eps : float
-            Maximum spatial distance between samples
+            Maximum spatial distance between samples (km)
         min_samples : int
             Minimum number of samples for DBSCAN
         time_eps : float
@@ -184,13 +184,33 @@ class EarthquakeChainAnalyzer:
         # Convert time to hours since start
         features['time_hours'] = (self.df['time'] - self.df['time'].min()).dt.total_seconds() / 3600
         
-        # Scale features
-        scaler = StandardScaler()
-        features_scaled = scaler.fit_transform(features)
+        # Scale features - normalize spatial and temporal features separately
+        scaler_spatial = StandardScaler()
+        scaler_temporal = StandardScaler()
         
-        # Perform ST-DBSCAN clustering
+        # Scale spatial features
+        spatial_features = features[['latitude', 'longitude', 'depth', 'mag']].values
+        spatial_features_scaled = scaler_spatial.fit_transform(spatial_features)
+        
+        # Scale temporal features
+        temporal_features = features[['time_hours']].values
+        temporal_features_scaled = scaler_temporal.fit_transform(temporal_features)
+        
+        # Combine features
+        features_scaled = np.column_stack([spatial_features_scaled, temporal_features_scaled])
+        
+        # Calculate eps values for scaled features
+        # For spatial features: eps_km / typical spatial scale
+        # For temporal features: time_eps_hours / typical temporal scale
+        spatial_eps = eps / 100.0  # Assuming typical spatial scale of ~100km
+        temporal_eps = time_eps / 24.0  # Assuming typical temporal scale of ~24 hours
+        
+        # Use the smaller eps for DBSCAN (more restrictive)
+        eps_scaled = min(spatial_eps, temporal_eps)
+        
+        # Perform DBSCAN clustering
         clustering = DBSCAN(
-            eps=eps,
+            eps=eps_scaled,
             min_samples=min_samples,
             metric='euclidean'
         ).fit(features_scaled)
