@@ -66,15 +66,24 @@ def cached_analyze_clusters(_df, eps_space, min_samples, eps_time):
     print(f"DEBUG [{execution_id}]: cached_analyze_clusters completed")
     return analyzer.df
 
+@st.cache_data
+def load_all_analyzers():
+    """
+    Load and preprocess data by initializing all necessary analyzers.
+    This function is cached to prevent reloading data on every script rerun.
+    """
+    analyzer = EarthquakeAnalyzer('japanearthquake_cleaned.csv')
+    ts_analyzer = TimeSeriesAnalyzer(analyzer.df)
+    chain_analyzer = EarthquakeChainAnalyzer(analyzer.df)
+    energy_analyzer = EnergyBalanceAnalyzer(analyzer.df)
+    return analyzer, ts_analyzer, chain_analyzer, energy_analyzer
+
 class EarthquakeDashboard:
     def __init__(self):
         """
         Initialize the EarthquakeDashboard
         """
-        self.analyzer = EarthquakeAnalyzer('japanearthquake_cleaned.csv')
-        self.ts_analyzer = TimeSeriesAnalyzer(self.analyzer.df)
-        self.chain_analyzer = EarthquakeChainAnalyzer(self.analyzer.df)
-        self.energy_analyzer = EnergyBalanceAnalyzer(self.analyzer.df)
+        self.analyzer, self.ts_analyzer, self.chain_analyzer, self.energy_analyzer = load_all_analyzers()
         
     def run(self):
         """
@@ -826,35 +835,82 @@ class EarthquakeDashboard:
             st.warning(f'Time interval analysis could not be performed: {e}')
 
         # 5. Magnitude Sequence Analysis
-        st.subheader('5. Magnitude Sequence Analysis with Pattern Recognition')
+        st.subheader('5. Enhanced Magnitude Sequence Analysis')
         st.markdown('''
         **What is this?**
-        This analysis examines how earthquake magnitudes change in sequence, which can help 
-        identify foreshocks, aftershocks, or magnitude clustering patterns.
+        This analysis has been enhanced to provide deeper insights into magnitude patterns over time. 
+        It helps to visually distinguish major events, identify trends, and understand the frequency distribution of earthquake magnitudes, which often follows the Gutenberg-Richter law.
         ''')
+
+        analysis_df = self.chain_analyzer.df.copy().sort_values('time')
+
+        tab1, tab2 = st.tabs(["Magnitude Sequence Plot", "Magnitude Distribution (Gutenberg-Richter)"])
+
+        with tab1:
+            st.markdown("""
+            **📈 Magnitude Sequence Over Time**
+
+            This plot visualizes each earthquake over time.
+            - **Size** of the dot represents the **magnitude** of the earthquake (larger dots for stronger quakes).
+            - **Color** distinguishes between regular events and identified **aftershocks**.
+            - A **30-day rolling average** line is included to show the general trend of earthquake magnitudes.
+            """)
+            try:
+                # Ensure 'mag' is numeric for rolling calculation
+                analysis_df['mag'] = pd.to_numeric(analysis_df['mag'], errors='coerce')
+                analysis_df.dropna(subset=['mag'], inplace=True)
+                
+                # Calculate rolling average of magnitude
+                analysis_df['mag_rolling_avg'] = analysis_df['mag'].rolling(window=30, center=True, min_periods=1).mean()
+
+                fig = px.scatter(analysis_df, 
+                               x='time', 
+                               y='mag', 
+                               color='is_aftershock' if 'is_aftershock' in analysis_df.columns else None,
+                               size='mag',  # Use magnitude for size
+                               hover_data=['mag', 'depth', 'time'],
+                               title='Magnitude Sequence Over Time with Rolling Average')
+
+                # Add rolling average line
+                fig.add_trace(go.Scatter(x=analysis_df['time'], 
+                                         y=analysis_df['mag_rolling_avg'], 
+                                         mode='lines', 
+                                         name='30-Day Rolling Avg',
+                                         line=dict(color='red', width=2)))
+
+                st.plotly_chart(fig, use_container_width=True)
+
+            except Exception as e:
+                st.warning(f'Magnitude sequence plot could not be created: {e}')
+
+        with tab2:
+            st.markdown("""
+            **📊 Magnitude Distribution**
+
+            This histogram shows the frequency of earthquakes at different magnitudes. According to the **Gutenberg-Richter Law**, the number of earthquakes decreases exponentially as magnitude increases. A straight line on this log-linear plot indicates that the dataset follows this empirical law.
+            """)
+            try:
+                fig_hist = px.histogram(analysis_df, x='mag', nbins=50, title='Earthquake Magnitude Distribution', log_y=True)
+                fig_hist.update_layout(
+                    yaxis_title="Count (Log Scale)",
+                    xaxis_title="Magnitude"
+                )
+                st.plotly_chart(fig_hist, use_container_width=True)
+            except Exception as e:
+                st.warning(f'Magnitude distribution plot could not be created: {e}')
+        
+        # Magnitude sequence statistics (kept from original)
+        st.subheader("Magnitude Change Statistics")
         try:
-            if 'is_aftershock' in self.chain_analyzer.df.columns:
-                fig = px.scatter(self.chain_analyzer.df, x='time', y='mag', color='is_aftershock', 
-                               title='Magnitude Sequence Over Time with Aftershock Classification')
-            else:
-                fig = px.scatter(self.chain_analyzer.df, x='time', y='mag', 
-                               title='Magnitude Sequence Over Time')
-            st.plotly_chart(fig)
-            
-            # Magnitude sequence statistics
-            if len(self.chain_analyzer.df) > 1:
+            if len(analysis_df) > 1:
                 # Calculate magnitude differences
-                mag_diffs = self.chain_analyzer.df['mag'].diff().dropna()
+                mag_diffs = analysis_df['mag'].diff().dropna()
                 
                 col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric('Mean Mag Change', f"{mag_diffs.mean():.3f}")
-                with col2:
-                    st.metric('Mag Change Std', f"{mag_diffs.std():.3f}")
-                with col3:
-                    st.metric('Max Mag Increase', f"{mag_diffs.max():.3f}")
-                with col4:
-                    st.metric('Max Mag Decrease', f"{mag_diffs.min():.3f}")
+                col1.metric('Mean Mag Change', f"{mag_diffs.mean():.3f}")
+                col2.metric('Mag Change Std', f"{mag_diffs.std():.3f}")
+                col3.metric('Max Mag Increase', f"{mag_diffs.max():.3f}")
+                col4.metric('Max Mag Decrease', f"{mag_diffs.min():.3f}")
                 
                 # Magnitude sequence insights
                 increasing_sequences = (mag_diffs > 0).sum()
@@ -870,13 +926,11 @@ class EarthquakeDashboard:
                 - Average magnitude change: {mag_diffs.mean():.3f} units
                 
                 **Scientific Interpretation:**
-                - Magnitude increases may indicate foreshock patterns
-                - Magnitude decreases are typical in aftershock sequences
-                - Large magnitude changes suggest different earthquake types or stress regimes
+                - An increasing trend in magnitude might indicate foreshock activity building up to a larger event.
+                - A decreasing trend is characteristic of an aftershock sequence following a main shock.
                 """)
-                
         except Exception as e:
-            st.warning(f'Magnitude sequence analysis could not be performed: {e}')
+            st.warning(f'Magnitude sequence statistics could not be performed: {e}')
 
         # 6. Summary Statistics with Scientific Context
         st.subheader('6. Comprehensive Analysis Summary')
