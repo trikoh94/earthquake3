@@ -79,11 +79,7 @@ def load_all_analyzers():
     Load and preprocess data by initializing all necessary analyzers.
     This function is cached to prevent reloading data on every script rerun.
     """
-    # Get the directory where this script is located
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    csv_path = os.path.join(script_dir, 'japanearthquake_cleaned.csv')
-    
-    analyzer = EarthquakeAnalyzer(csv_path)
+    analyzer = EarthquakeAnalyzer('japanearthquake_cleaned.csv')
     ts_analyzer = TimeSeriesAnalyzer(analyzer.df)
     chain_analyzer = EarthquakeChainAnalyzer(analyzer.df)
     energy_analyzer = EnergyBalanceAnalyzer(analyzer.df)
